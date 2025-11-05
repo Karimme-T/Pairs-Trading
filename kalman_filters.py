@@ -33,7 +33,7 @@ class KalmanFilterReg:
             observation_noise: Varianza del ruido de observación (R). Default: 10.0
         """
         # Estimación inicial de parámetros [intercept, hedge_ratio]
-        self.w = initial_params if initial_params is not None else np.array([-3.0, 1.5])
+        self.w = initial_params if initial_params is not None else np.array([1, 1])
         
         # Matriz de transición (identidad = parámetros constantes + ruido)
         self.A = transition_matrix if transition_matrix is not None else np.eye(2)
