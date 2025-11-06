@@ -5,7 +5,7 @@ import dateparser
 
 
 
-def download_historical_data(selected_pair: list, years: int = 15) -> pd.DataFrame:
+def download_historical_data(selected_pair: list, years: int = 7) -> pd.DataFrame:
     """
     Download historical price data for the selected pair.
     

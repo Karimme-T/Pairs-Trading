@@ -6,9 +6,13 @@ from utils import download_historical_data
 # Manually select pair by changing this index (0, 1, or 2)
 selected_pair_idx = 0
 pairs = [
-    ['AAPL', 'MSFT'],
-    ['KO', 'MCD'],
-    ['NKE', 'TGT']
+    ['AAPL', 'ORCL'],
+    ['ADBE', 'CSCO'],
+    ['ADBE', 'MSFT'],
+    ['CL', 'KMB'],
+    ['INTC', 'ORCL'],
+    ['KMB', 'MDLZ'],
+    ['MMM', 'UPS']
 ]
 
 
