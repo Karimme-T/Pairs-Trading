@@ -65,3 +65,31 @@ def download_historical_data(selected_pair: list, years: int = 7) -> pd.DataFram
     except Exception as e:
         print(f"Error downloading data: {e}")
         raise
+
+def split_val_test(df):
+    """
+    Split a price DataFrame (already sorted by date) into two halves:
+    validation (first half) and test (second half).
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with columns ['Date', 'stock_a', 'stock_b'].
+
+    Returns
+    -------
+    val_df : pd.DataFrame
+        First half (older dates).
+    test_df : pd.DataFrame
+        Second half (recent dates).
+    """
+    if df.empty:
+        raise ValueError("Input DataFrame is empty.")
+    
+    midpoint = len(df) // 2
+
+    # Keep all columns, including 'Date'
+    val_df = df.iloc[:midpoint].copy()
+    test_df = df.iloc[midpoint:].copy()
+    
+    return val_df, test_df

@@ -1,7 +1,7 @@
 import yfinance as yf
 import pandas as pd
 import numpy as np
-from utils import download_historical_data
+from utils import download_historical_data, split_val_test
 
 # Manually select pair by changing this index (0, 1, or 2)
 selected_pair_idx = 0
@@ -28,7 +28,8 @@ def main():
     
     # Download historical data
     selected_pair = pairs[selected_pair_idx]
-    df = download_historical_data(selected_pair, years=15)
+    df = download_historical_data(selected_pair, years=7)
+    val_df, test_df = split_val_test(df)
     
     print("\n" + "=" * 50)
     print("Pipeline initialization complete!")
@@ -36,9 +37,9 @@ def main():
     
     # Preview the data
     print(f"\nFirst 5 days:")
-    print(df.head())
+    print(val_df.head())
     print(f"\nLast 5 days:")
-    print(df.tail())
+    print(test_df.tail())
     
     # TODO: Add further pipeline steps here
     # - Cointegration testing
