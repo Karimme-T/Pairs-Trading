@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from typing import Tuple, Optional
+from statsmodels.tsa.vector_ar.vecm import coint_johansen
 
 
 class KalmanFilterReg:
@@ -259,3 +260,164 @@ def calculate_spread(df: pd.DataFrame, b_0: float, b_1: float) -> pd.Series:
         Series con el spread
     """
     return df['stock_a'] - (b_0 + b_1 * df['stock_b'])
+
+
+def compute_johansen_eigenvector(prices_df: pd.DataFrame) -> np.ndarray:
+    """
+    Calcula el eigenvector usando el test de Johansen.
+    
+    Argumentos:
+        prices_df: DataFrame con columnas 'stock_a' y 'stock_b'
+    
+    Returns:
+        Eigenvector normalizado [v_0, v_1]
+    """
+
+    prices_matrix = prices_df[['stock_a', 'stock_b']].values
+    
+    if len(prices_matrix) < 10:
+        return np.array([1.0, 0.0])
+    
+    try:
+        johansen_result = coint_johansen(prices_matrix, det_order=0, k_ar_diff=1)
+        eigenvector = johansen_result.evec[:, 0]
+        
+        # Normalizar para que el segundo componente sea positivo
+        if eigenvector[1] < 0:
+            eigenvector = -eigenvector
+        
+        return eigenvector
+    
+    except Exception as e:
+        print(f"Warning: Johansen failed. Error: {e}")
+        return np.array([1.0, 0.0])
+
+
+def compute_vecm_representation(prices_df: pd.DataFrame,
+                                eigenvector: np.ndarray) -> np.ndarray:
+    """
+    Calcula la representación VECM usando el eigenvector.
+
+    Argumentos:
+        prices_df: DataFrame con precios
+        eigenvector: Eigenvector de cointegración
+    
+    Returns:
+        Coeficientes alpha del VECM 
+    """
+
+    prices_matrix = prices_df[['stock_a', 'stock_b']].values
+    
+    if len(prices_matrix) < 3:
+        return np.zeros(2)
+    
+    delta_prices = np.diff(prices_matrix, axis=0)
+    coint_relation = prices_matrix[:-1] @ eigenvector
+    alpha_coefs = []
+    
+    for i in range(2):
+        X = coint_relation.reshape(-1, 1)
+        y = delta_prices[:, i]
+        
+        try:
+            alpha_i = np.linalg.lstsq(X, y, rcond=None)[0][0]
+            alpha_coefs.append(alpha_i)
+        except:
+            alpha_coefs.append(0.0)
+    
+    return np.array(alpha_coefs)
+
+
+def compute_theta(eigenvector: np.ndarray, vecm_coefs: np.ndarray) -> float:
+    """
+    Calcula theta
+    
+    Argumentos:
+        eigenvector: Eigenvector de cointegración [v_0, v_1]
+        vecm_coefs: Coeficientes alpha del VECM 
+    
+    Returns:
+        Theta
+    """
+    return np.dot(vecm_coefs, eigenvector)
+
+
+def analyze_vecm_window(df: pd.DataFrame, 
+                        window_size: int = 252,
+                        verbose: bool = True) -> dict:
+    """
+    Analiza una ventana de 252 días usando Johansen y VECM.
+
+    Argumentos:
+        df: DataFrame con columnas 'stock_a' y 'stock_b' 
+        window_size: Tamaño de ventana (usaremos 252 días)
+
+    Returns:
+        dict con:
+            - 'eigenvector': Eigenvector de cointegración [v_0, v_1]
+            - 'vecm_coefs': Coeficientes alpha VECM 
+            - 'theta': Velocidad de reversión
+            - 'johansen_test': Resultado completo del test de Johansen
+    """
+
+    if len(df) < window_size:
+        raise ValueError(f"DataFrame debe tener al menos {window_size} días. Tiene {len(df)}")
+    
+    window_df = df.iloc[-window_size:]
+    
+    if verbose:
+        print(f"\n{'='*60}")
+        print(f"  ANÁLISIS VECM - VENTANA DE {window_size} DÍAS")
+        print(f"{'='*60}")
+        print(f"\nPeriodo analizado:")
+        print(f"  Desde: {window_df.index[0].date()}")
+        print(f"  Hasta: {window_df.index[-1].date()}")
+        print(f"  Total días: {len(window_df)}")
+    
+
+    eigenvector = compute_johansen_eigenvector(window_df)
+    vecm_coefs = compute_vecm_representation(window_df, eigenvector)
+    theta = compute_theta(eigenvector, vecm_coefs)
+    prices_matrix = window_df[['stock_a', 'stock_b']].values
+
+    try:
+        johansen_result = coint_johansen(prices_matrix, det_order=0, k_ar_diff=1)
+    except:
+        johansen_result = None
+    
+    if verbose:
+        print(f"\n{'='*60}")
+        print("RESULTADOS")
+        print(f"{'='*60}")
+        print(f"\nEigenvector de cointegración (β):")
+        print(f"  β_0: {eigenvector[0]:.6f}")
+        print(f"  β_1: {eigenvector[1]:.6f}")
+        print(f"\nCoeficientes VECM (α):")
+        print(f"  α_0: {vecm_coefs[0]:.6f}")
+        print(f"  α_1: {vecm_coefs[1]:.6f}")
+        print(f"\nTheta (θ = α' * β):")
+        print(f"  θ: {theta:.6f}")
+        
+        if theta < 0:
+            print(f"  ✓ θ < 0: El spread tiende a revertir")
+            print(f"  Velocidad de reversión: {abs(theta):.6f}")
+        else:
+            print(f"  ✗ θ > 0: El spread tiende a diverger")
+        
+        if johansen_result is not None:
+            print(f"\nTest de Johansen:")
+            print(f"  Trace statistic: {johansen_result.lr1[0]:.4f}")
+            print(f"  Critical value (95%): {johansen_result.cvt[0, 1]:.4f}")
+            if johansen_result.lr1[0] > johansen_result.cvt[0, 1]:
+                print(f"  ✓ Hay cointegración al 95% de confianza")
+            else:
+                print(f"  ✗ NO hay cointegración al 95% de confianza")
+        
+        print(f"{'='*60}\n")
+    
+    return {
+        'eigenvector': eigenvector,
+        'vecm_coefs': vecm_coefs,
+        'theta': theta,
+        'johansen_test': johansen_result
+    }
