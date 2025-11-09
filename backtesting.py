@@ -557,7 +557,6 @@ def walk_forward_analysis(train_df: pd.DataFrame,
         print("MEJORES PARÁMETROS:")
         print(f"{'='*60}")
         print(f"  Theta (θ): {best_params['theta']:.3f}")
-        print(f"  Exit threshold: {best_params['exit_threshold']:.3f}")
         print(f"  Kalman 1 process noise: {best_params['kalman1_process_noise']}")
         print(f"  Kalman 2 process noise: {best_params['kalman2_process_noise']}")
         print(f"  Sharpe en Validation: {best_sharpe:.3f}")
@@ -568,7 +567,6 @@ def walk_forward_analysis(train_df: pd.DataFrame,
         validation_results.sort(key=lambda x: x['sharpe'], reverse=True)
         for i, result in enumerate(validation_results[:5], 1):
             print(f"{i}. θ={result['config']['theta']:.2f} | "
-                  f"exit={result['config']['exit_threshold']:.2f} | "
                   f"Sharpe={result['sharpe']:.3f} | "
                   f"Sortino={result['sortino']:.3f} | "
                   f"Return={result['return']:.2f}% ")
