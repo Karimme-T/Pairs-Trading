@@ -1,8 +1,10 @@
 import yfinance as yf
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 from utils import download_historical_data, split_val_test, plot_kalman_estimation
 from kalman_filters import fit_kalman_hedge_ratio, analyze_vecm_window
+from backtesting import run_backtest
 
 # Manually select pair by changing this index (0, 1, or 2)
 selected_pair_idx = 0
@@ -87,7 +89,55 @@ def main():
             print(f"\n Theta positivo")
     else:
         print(f"\n No hay suficentes datos")
-        
+
+    
+    # Ejecutar backtesting
+    print("\n" + "=" * 50)
+    print("BACKTESTING")
+    print("=" * 50)
+    
+    backtest, results = run_backtest(
+        df=val_df,
+        initial_cash=1_000_000,
+        verbose=True
+    )
+    
+    print("\nPrimeros 10 días:")
+    print(results[['date', 'portfolio_value', 'vecm_norm', 'active_position']].head(10))
+    
+    print("\nÚltimos 10 días:")
+    print(results[['date', 'portfolio_value', 'vecm_norm', 'active_position']].tail(10))
+    
+    
+    fig, axes = plt.subplots(3, 1, figsize=(15, 10))
+    
+    # Portfolio value
+    axes[0].plot(results['date'], results['portfolio_value'])
+    axes[0].axhline(y=1_000_000, color='r', linestyle='--', label='Inicial')
+    axes[0].set_title('Valor del Portfolio')
+    axes[0].set_ylabel('USD')
+    axes[0].legend()
+    axes[0].grid(True)
+    
+    # VECM normalizado
+    axes[1].plot(results['date'], results['vecm_norm'])
+    axes[1].axhline(y=1.0, color='g', linestyle='--', label='Entrada')
+    axes[1].axhline(y=-1.0, color='g', linestyle='--')
+    axes[1].axhline(y=0.05, color='r', linestyle='--', label='Salida')
+    axes[1].axhline(y=-0.05, color='r', linestyle='--')
+    axes[1].set_title('VECM Normalizado')
+    axes[1].legend()
+    axes[1].grid(True)
+    
+    # Posiciones activas
+    axes[2].fill_between(results['date'], 0, results['active_position'], alpha=0.3)
+    axes[2].set_title('Posiciones Activas')
+    axes[2].set_ylabel('Activa (1) / Inactiva (0)')
+    axes[2].grid(True)
+    
+    plt.tight_layout()
+    plt.show()
+
     
     # TODO: Add further pipeline steps here
     # - Cointegration testing
