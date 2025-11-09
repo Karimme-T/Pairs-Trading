@@ -62,7 +62,6 @@ class PairTradingBacktest:
                  position_allocation: float = 0.80,
                  window_size: int = 252,
                  theta: float = 0.5,
-                 exit_threshold: float = 0.1,
                  kalman1_process_noise: float = 0.01,
                  kalman1_obs_noise: float = 10.0,
                  kalman2_process_noise: float = 0.001,
@@ -86,7 +85,6 @@ class PairTradingBacktest:
         self.position_allocation = position_allocation
         self.window_size = window_size
         self.theta = theta
-        self.exit_threshold = exit_threshold
         
         # Filtros de Kalman
         self.kalman1 = KalmanFilterReg(
@@ -260,7 +258,6 @@ class PairTradingBacktest:
             print(f"  Comisión: {self.commission_rate*100:.3f}%")
             print(f"  Tasa de préstamo: {self.borrow_rate*100:.3f}% anual")
             print(f"  Umbral entrada: {self.theta}")
-            print(f"  Umbral salida: {self.exit_threshold}")
             print(f"{'='*60}\n")
 
         
@@ -312,7 +309,7 @@ class PairTradingBacktest:
             # SEÑALES DE TRADING
 
             # Opción 1: cerrar posición (Z ~0)
-            if self.position_type is not None and abs(vecm_norm) < self.exit_threshold:
+            if self.position_type is not None and abs(vecm_norm) < self.theta:
                 self.close_position(p1, p2, date, reason="(Reversión)")
             
             # Opción 2: abrimos long A y short B (Z > theta)
@@ -476,22 +473,18 @@ def walk_forward_analysis(train_df: pd.DataFrame,
         print("-" * 60)
 
     theta_grid = [0.1, 0.2, 0.3, 0.4, 0.5]
-    exit_threshold_grid = [0.5, 0.1, 0.15]
     test_configs = []
 
     for theta in theta_grid:
-        for exit_th in exit_threshold_grid:
-            test_configs.append({
-                'theta': theta,
-                'exit_threshold': exit_th,
-                'kalman1_process_noise': 0.01,
-                'kalman2_process_noise': 0.001
-            })
+        test_configs.append({
+            'theta': theta,
+            'kalman1_process_noise': 0.01,
+            'kalman2_process_noise': 0.001
+        })
     
     if verbose:
         print(f"Probando {len(test_configs)} configuraciones de theta...")
         print(f"Theta grid: {theta_grid}")
-        print(f"Exit threshold grid: {exit_threshold_grid}\n")
     
     
     best_sharpe = -np.inf
@@ -500,12 +493,11 @@ def walk_forward_analysis(train_df: pd.DataFrame,
     
     for i, config in enumerate(test_configs, 1):
         if verbose and i % 5 == 0:
-            print(f"\nConfig {i}/{len(test_configs)}: theta = {config['theta']:.2f}, exit={config['exit_threshold']:.2f}")
+            print(f"\nConfig {i}/{len(test_configs)}: theta = {config['theta']:.2f}")
         
         backtest = PairTradingBacktest(
             initial_cash=initial_cash,
             theta = config['theta'],
-            exit_threshold=config['exit_threshold'],
             kalman1_process_noise=config['kalman1_process_noise'],
             kalman2_process_noise=config['kalman2_process_noise']
         )
@@ -545,7 +537,6 @@ def walk_forward_analysis(train_df: pd.DataFrame,
             
             best_params = {
                 'theta': 0.5,
-                'exit_threshold': 0.1,
                 'kalman1_process_noise': 0.01,
                 'kalman2_process_noise': 0.001
             }
