@@ -68,33 +68,39 @@ def download_historical_data(selected_pair: list, years: int = 7) -> pd.DataFram
         print(f"Error downloading data: {e}")
         raise
 
-def split_val_test(df):
+def split_train_val_test(df, train_pct=0.60, val_pct=0.20, test_pct=0.20):
     """
-    Split a price DataFrame (already sorted by date) into two halves:
-    validation (first half) and test (second half).
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        DataFrame with columns ['Date', 'stock_a', 'stock_b'].
-
-    Returns
-    -------
-    val_df : pd.DataFrame
-        First half (older dates).
-    test_df : pd.DataFrame
-        Second half (recent dates).
+    Split cronológico en train/val/test (60/20/20) utilizando los últimos 15 años
+    
+    Args:
+        df: DataFrame con datos de precios
+        train_pct: % para training (default 60%)
+        val_pct: % para validation (default 20%)
+        test_pct: % para testing (default 20%)
+    
+    Returns:
+        train_df, val_df, test_df
     """
     if df.empty:
         raise ValueError("Input DataFrame is empty.")
     
-    midpoint = len(df) // 2
-
-    # Keep all columns, including 'Date'
-    val_df = df.iloc[:midpoint].copy()
-    test_df = df.iloc[midpoint:].copy()
-
-    return val_df, test_df
+    total_len = len(df)
+    train_end = int(total_len * train_pct)
+    val_end = train_end + int(total_len * val_pct)
+    
+    train_df = df.iloc[:train_end].copy()
+    val_df = df.iloc[train_end:val_end].copy()
+    test_df = df.iloc[val_end:].copy()
+    
+    print(f"\n{'='*50}")
+    print("DATA SPLIT")
+    print(f"{'='*50}")
+    print(f"TRAIN: {len(train_df)} días ({train_pct*100:.0f}%) | {train_df.index[0].date()} a {train_df.index[-1].date()}")
+    print(f"VAL:   {len(val_df)} días ({val_pct*100:.0f}%) | {val_df.index[0].date()} a {val_df.index[-1].date()}")
+    print(f"TEST:  {len(test_df)} días ({test_pct*100:.0f}%) | {test_df.index[0].date()} a {test_df.index[-1].date()}")
+    print(f"{'='*50}\n")
+    
+    return train_df, val_df, test_df
 
 #test for kalman 1 debug
 def plot_kalman_estimation(results_df: pd.DataFrame, 

@@ -383,3 +383,165 @@ def run_backtest(df: pd.DataFrame,
     results_df = backtest.run(df, verbose=verbose)
     
     return backtest, results_df
+
+
+def calculate_performance_metrics(results_df: pd.DataFrame, 
+                                  initial_cash: float,
+                                  verbose: bool = True) -> dict:
+    """
+    Calcula métricas de performance del backtesting.
+    """
+    results_df = results_df.copy()
+    results_df['daily_return'] = results_df['portfolio_value'].pct_change()
+    
+    final_value = results_df['portfolio_value'].iloc[-1]
+    total_return = (final_value - initial_cash) / initial_cash
+    
+    mean_daily_return = results_df['daily_return'].mean()
+    std_daily_return = results_df['daily_return'].std()
+    sharpe_ratio = (mean_daily_return / std_daily_return) * np.sqrt(252) if std_daily_return > 0 else 0
+
+    negative_returns = results_df['daily_return'][results_df['daily_return'] < 0]
+    downside_std = negative_returns.std()
+    sortino_ratio = (mean_daily_return / downside_std) * np.sqrt(252) if downside_std > 0 else 0
+    
+    cumulative = results_df['portfolio_value']
+    running_max = cumulative.expanding().max()
+    drawdown = (cumulative - running_max) / running_max
+    max_drawdown = drawdown.min()
+    
+    years = len(results_df) / 252
+    annualized_return = (1 + total_return) ** (1/years) - 1 if years > 0 else 0
+    calmar_ratio = annualized_return / abs(max_drawdown) if max_drawdown != 0 else 0
+    
+    total_borrow_costs = results_df['borrow_cost'].sum()
+    
+    # Contar trades 
+    position_changes = results_df['active_position'].diff().fillna(0)
+    total_trades = len(position_changes[position_changes == -1])  
+    
+    metrics = {
+        'initial_cash': initial_cash,
+        'final_value': final_value,
+        'total_return': total_return,
+        'total_return_pct': total_return * 100,
+        'annualized_return': annualized_return,
+        'annualized_return_pct': annualized_return * 100,
+        'sharpe_ratio': sharpe_ratio,
+        'sortini_ratio': sortino_ratio,
+        'max_drawdown': max_drawdown,
+        'max_drawdown_pct': max_drawdown * 100,
+        'calmar_ratio': calmar_ratio,
+        'total_trades': total_trades,
+        'total_borrow_costs': total_borrow_costs,
+        'days_traded': len(results_df),
+        'years_traded': years
+    }
+    
+    if verbose:
+        print(f"\n{'='*60}")
+        print("MÉTRICAS DE PERFORMANCE")
+        print(f"{'='*60}")
+        print(f"Capital Inicial:        ${metrics['initial_cash']:,.2f}")
+        print(f"Capital Final:          ${metrics['final_value']:,.2f}")
+        print(f"Retorno Total:          {metrics['total_return_pct']:.2f}%")
+        print(f"Retorno Anualizado:     {metrics['annualized_return_pct']:.2f}%")
+        print(f"Sharpe Ratio:           {metrics['sharpe_ratio']:.3f}")
+        print(f"Sortino Ratio:          {metrics['sortino_ratio']:.3f}")
+        print(f"Max Drawdown:           {metrics['max_drawdown_pct']:.2f}%")
+        print(f"Calmar Ratio:           {metrics['calmar_ratio']:.3f}")
+        print(f"Total Trades:           {metrics['total_trades']}")
+        print(f"Costos de Préstamo:     ${metrics['total_borrow_costs']:,.2f}")
+        print(f"Días Trading:           {metrics['days_traded']}")
+        print(f"{'='*60}\n")
+    
+    return metrics
+
+
+def walk_forward_analysis(train_df: pd.DataFrame,
+                         val_df: pd.DataFrame,
+                         test_df: pd.DataFrame,
+                         initial_cash: float = 1_000_000,
+                         verbose: bool = True) -> dict:
+    """
+    Walk-forward analysis: optimiza en val, testea en test.
+    """
+    
+    if verbose:
+        print(f"\n{'='*60}")
+        print("WALK-FORWARD ANALYSIS")
+        print(f"{'='*60}\n")
+        print("FASE 1: OPTIMIZACIÓN EN VALIDATION SET")
+        print("-" * 60)
+    
+    test_configs = [
+        {'entry_threshold': 1.0, 'exit_threshold': 0.05, 
+         'kalman1_process_noise': 0.01, 'kalman2_process_noise': 0.001},
+        {'entry_threshold': 1.5, 'exit_threshold': 0.05, 
+         'kalman1_process_noise': 0.01, 'kalman2_process_noise': 0.001},
+        {'entry_threshold': 1.0, 'exit_threshold': 0.1, 
+         'kalman1_process_noise': 0.01, 'kalman2_process_noise': 0.001},
+        {'entry_threshold': 2.0, 'exit_threshold': 0.05, 
+         'kalman1_process_noise': 0.001, 'kalman2_process_noise': 0.0001},
+    ]
+    
+    best_sharpe = -np.inf
+    best_params = None
+    validation_results = []
+    
+    for i, config in enumerate(test_configs, 1):
+        if verbose:
+            print(f"\nConfig {i}/{len(test_configs)}: {config}")
+        
+        backtest = PairTradingBacktest(
+            initial_cash=initial_cash,
+            entry_threshold=config['entry_threshold'],
+            exit_threshold=config['exit_threshold'],
+            kalman1_process_noise=config['kalman1_process_noise'],
+            kalman2_process_noise=config['kalman2_process_noise']
+        )
+        
+        results = backtest.run(val_df, verbose=False)
+        metrics = calculate_performance_metrics(results, initial_cash, verbose=False)
+        
+        validation_results.append({
+            'config': config,
+            'sharpe': metrics['sharpe_ratio'],
+            'sortino': metrics['sortino_ratio'],
+            'return': metrics['total_return_pct'],
+            'max_dd': metrics['max_drawdown_pct']
+        })
+        
+        if metrics['sharpe_ratio'] > best_sharpe:
+            best_sharpe = metrics['sharpe_ratio']
+            best_sortino = metrics['sortino_ratio']
+            best_params = config
+        
+        if verbose:
+            print(f"  Sharpe: {metrics['sharpe_ratio']:.3f} | "
+                  f" Sortino: {metrics['sortino_ratio']:.3f} |"
+                  f"Return: {metrics['total_return_pct']:.2f}% | "
+                  f"MaxDD: {metrics['max_drawdown_pct']:.2f}%")
+    
+    if verbose:
+        print(f"\n{'='*60}")
+        print("MEJORES PARÁMETROS:")
+        print(f"{'='*60}")
+        for key, value in best_params.items():
+            print(f"  {key}: {value}")
+        print(f"  Sharpe (Validation): {best_sharpe:.3f}")
+        print(f" Sortino (Validation): {best_sortino:.3f}")
+        print(f"{'='*60}\n")
+        print("\nFASE 2: TESTING CON MEJORES PARÁMETROS")
+        print("-" * 60)
+    
+    backtest_test = PairTradingBacktest(initial_cash=initial_cash, **best_params)
+    test_results = backtest_test.run(test_df, verbose=verbose)
+    test_metrics = calculate_performance_metrics(test_results, initial_cash, verbose=verbose)
+    
+    return {
+        'best_params': best_params,
+        'validation_results': validation_results,
+        'test_results': test_results,
+        'test_metrics': test_metrics
+    }
