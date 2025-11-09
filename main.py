@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from utils import download_historical_data, split_train_val_test, plot_kalman_estimation
 from kalman_filters import fit_kalman_hedge_ratio, analyze_vecm_window
-from backtesting import run_backtest, walk_forward_analysis, calculate_performance_metrics
+from backtesting import PairTradingBacktest, calculate_performance_metrics, walk_forward_analysis
 
 
 # Manually select pair by changing this index (0, 1, or 2)
