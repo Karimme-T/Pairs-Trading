@@ -85,10 +85,10 @@ def main():
     print("=" * 70)
 
     print("\nPrimeros 10 días (Test Set):")
-    print(test_resultados[['date', 'portfolio_value', 'vecm_norm', 'active_position']].head(10))
+    print(test_resultados[['date', 'portfolio_value', 'vecm_current', 'active_position']].head(10))
     
     print("\nÚltimos 10 días (Test Set):")
-    print(test_resultados[['date', 'portfolio_value', 'vecm_norm', 'active_position']].tail(10))
+    print(test_resultados[['date', 'portfolio_value', 'vecm_current', 'active_position']].tail(10))
     
     print("\n" + "=" * 70)
     print("VISUALIZACIONES")
@@ -103,7 +103,7 @@ def main():
     axes[0].legend()
     axes[0].grid(True, alpha=0.3)
     
-    axes[1].plot(test_resultados['date'], test_resultados['vecm_norm'], linewidth=1.5)
+    axes[1].plot(test_resultados['date'], test_resultados['vecm_current'], linewidth=1.5)
     axes[1].axhline(y=1.0, color='g', linestyle='--', label='Entrada')
     axes[1].axhline(y=-1.0, color='g', linestyle='--')
     axes[1].axhline(y=0.05, color='r', linestyle='--', label='Salida')

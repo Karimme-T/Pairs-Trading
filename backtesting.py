@@ -112,7 +112,7 @@ class PairTradingBacktest:
 
     
     def calculate_commission(self, price: float, n_shares: float) -> float:
-        return price * n_shares * self.commission_rate
+        return abs(price * n_shares * self.commission_rate)
     
     
     def calculate_daily_borrow_cost(self) -> float:
@@ -127,13 +127,16 @@ class PairTradingBacktest:
         Abre posición: LONG A (stock_a), SHORT B (stock_b).
         Señal: Z > θ 
         """
-        available_per_asset = self.cash * (self.position_allocation / 2)
+        inversion_total = self.cash * self.position_allocation
+        amount_per_side = inversion_total / 2
         
         # LONG stock_a
-        self.n_shares_long = available_per_asset // (p1 * (1 + self.commission_rate))
-        cost_long = p1 * self.n_shares_long * (1 + self.commission_rate)
+        self.n_shares_long = amount_per_side / (p1 * (1 + self.commission_rate))
+        commission_long = self.calculate_commission(p1, self.n_shares_long)
+        cost_long = p1 * self.n_shares_long + commission_long
         
-        if cost_long > available_per_asset:
+        if cost_long > self.cash:
+            print(f"[{date.date()}] Error, no hay suficiente dinero para abrir posición")
             return
         
         self.cash -= cost_long
@@ -142,7 +145,9 @@ class PairTradingBacktest:
         # SHORT stock_b
         self.n_shares_short = self.n_shares_long * hr
         commission_short = self.calculate_commission(p2, self.n_shares_short)
+
         self.borrowed_amount = p2 * self.n_shares_short
+
         self.cash += self.borrowed_amount - commission_short
         self.active_short = p2
         self.position_type = 'long_A_short_B'
@@ -158,24 +163,29 @@ class PairTradingBacktest:
         Abre posición: SHORT A (stock_a), LONG B (stock_b).
         Señal: Z < -θ 
         """
-        available_per_asset = self.cash * (self.position_allocation / 2)
+        inversion_total = self.cash * self.position_allocation
+        amount_per_side = inversion_total / 2
         
         # SHORT stock_a
-        self.n_shares_short = available_per_asset // (p1 * (1 + self.commission_rate))
+        self.n_shares_short = amount_per_side / (p1 * (1 + self.commission_rate))
         commission_short = self.calculate_commission(p1, self.n_shares_short)
+
         self.borrowed_amount = p1 * self.n_shares_short
         self.cash += self.borrowed_amount - commission_short
         self.active_short = p1
         
         # LONG stock_b
         self.n_shares_long = self.n_shares_short * hr
-        cost_long = p2 * self.n_shares_long * (1 + self.commission_rate)
+        commission_long = self.calculate_commission(p2, self.n_shares_long)
+        cost_long = p2 * self.n_shares_long + commission_long
         
         if cost_long > self.cash:
             #si no hay suficiente cash
-            self.cash -= self.borrowed_amount - commission_short
+            print(f"[{date.date()}] Error, no hay suficiente cash")
+            self.cash -= (self.borrowed_amount - commission_short)
             self.borrowed_amount = 0
             self.active_short = None
+            self.n_shares_short = 0
             return
         
         self.cash -= cost_long
@@ -203,30 +213,36 @@ class PairTradingBacktest:
         
         if self.position_type == 'long_A_short_B':
             #Cerramos Long A
-            proceeds_long = p1 * self.n_shares_long * (1 - self.commission_rate)
-            self.cash += proceeds_long
+            proceeds_long = p1 * self.n_shares_long 
+            commission_long = self.calculate_commission(p1, self.n_shares_long)
+            self.cash += proceeds_long - commission_long
 
             #Cerramos Short B
-            cost_short = p2 * self.n_shares_short * (1 + self.commission_rate)
-            self.cash -= cost_short
-            self.cash -= self.borrowed_amount
+            cost_short = p2 * self.n_shares_short
+            commission_short = self.calculate_commission(p2, self.n_shares_short)
+            self.cash -= cost_short + commission_short
 
-            pnl = (p1 - self.active_long) * self.n_shares_long - (p2 - self.active_short) * self.n_shares_short
+            pnl_long = (p1 - self.active_long) * self.n_shares_long
+            pnl_short = (self.active_short - p2) * self.n_shares_short
+            pnl = pnl_long + pnl_short - commission_long - commission_short
 
         else:
             # cerramos short A
-            cost_short = p1 * self.n_shares_short * (1 + self.commission_rate)
-            self.cash -= cost_short
-            self.cash -= self.borrowed_amount
+            cost_short = p1 * self.n_shares_short 
+            commission_short  = self.calculate_commission(p1, self.n_shares_short)
+            self.cash -= cost_short + commission_short
 
             # ceramos long B
-            proceeds_long = p2 * self.n_shares_long * (1 - self.commission_rate)
-            self.cash += proceeds_long
+            proceeds_long = p2 * self.n_shares_long
+            commission_long = self.calculate_commission(p2, self.n_shares_long)
+            self.cash += proceeds_long - commission_long
 
-            pnl = (self.active_short - p1) * self.n_shares_short + (p2 - self.active_long) * self.n_shares_long
+            pnl_short = (self.active_short - p1) * self.n_shares_short
+            pnl_long = (p2 - self.active_long) * self.n_shares_long
+            pnl = pnl_short + pnl_long - commission_short - commission_long
 
         print(f"\n[{date.date()}] Cerrando: {self.position_type} {reason}")
-        print(f" PnL (aprox): ${pnl:.2f}")
+        print(f" PnL: ${pnl:.2f}")
         print(f" Cash: ${self.cash:.2f}")
 
         
@@ -237,6 +253,24 @@ class PairTradingBacktest:
         self.n_shares_short = 0
         self.borrowed_amount = 0
         self.position_type = None
+
+    
+    def calculate_portfolio_value(self, p1:float, p2:float) -> float:
+        """
+        Calcula el valor actual del portafolio.
+        """
+
+        portfolio_value = self.cash
+
+        if self.position_type == 'long_A_short_B':
+            portfolio_value += p1 * self.n_shares_long
+            portfolio_value -= p2 * self.n_shares_short
+
+        elif self.position_type == 'short_A_long_B':
+            portfolio_value -= p1 * self.n_shares_short
+            portfolio_value += p2 * self.n_shares_long
+        
+        return portfolio_value
 
     
     def run(self, df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
@@ -260,108 +294,112 @@ class PairTradingBacktest:
             print(f"  Umbral entrada: {self.theta}")
             print(f"{'='*60}\n")
 
+        df = df.reset_index()
         
         # Empezar después de window_size días
         for i in range(self.window_size, len(df)):
-            row = df.iloc[i]
-            date = df.index[i]
-            p1 = row['stock_a']
-            p2 = row['stock_b']
+            current_date = df.loc[i, 'Date']
+            p1 = df.loc[i, 'stock_a']
+            p2 = df.loc[i, 'stock_b']
+
+            # Costos de préstamos diarios
+            daily_borrow_cost = self.calculate_daily_borrow_cost()
+            self.cash -= daily_borrow_cost
+
+            #Ventana de históricos
+            window_data = df.iloc[i-self.window_size:i]
             
 
             # UPDATE KALMAN 1 (Hedge Ratio)
             self.kalman1.predict()
             self.kalman1.update(x=p2, y=p1)
-            w0, w1 = self.kalman1.params
-            hr = w1
-            
+            hr_hat = self.kalman1.hedge_ratio
 
-            # UPDATE KALMAN 2 (VECM)
-            window = df.iloc[i-self.window_size:i]
-            eigenvector = compute_johansen_eigenvector(window)
+            try:
+                eigenvector = compute_johansen_eigenvector(window_data)
+
+                # UPDATE KALMAN 2 (VECM)
+                self.kalman2.predict()
+                self.kalman2.update(eigenvector)
+                e1_hat, e2_hat = self.kalman2.params
+
+                #coeficientes alpha
+                vecm_coefs = compute_vecm_representation(window_data, eigenvector)
+                theta_revertion = compute_theta(eigenvector, vecm_coefs)
+
+                #calcular vecm 
+                vecm_current = e1_hat * p1 + e2_hat * p2
+                
+                #calcular el vecm por ventanas de 252
+                vecm_window = []
+                for j in range(len(window_data)):
+                    vecm_j = e1_hat * window_data['stock_a'].iloc[j] + e2_hat * window_data['stock_b'].iloc[j]
+                    vecm_window.append(vecm_j)
             
-            self.kalman2.predict()
-            self.kalman2.update(eigenvector)
-            e1_hat, e2_hat = self.kalman2.params
+                # Normalizar VECM
+                vecm_mean = np.mean(vecm_window)
+                vecm_std = np.std(vecm_window)
+
+                if vecm_std > 0:
+                    z_score = (vecm_current - vecm_mean) / vecm_std
+                else:
+                    z_score = 0
             
-            # VECM estimado
-            vecm_hat = e1_hat * p1 + e2_hat * p2
-            self.vecms_hat.append(vecm_hat)
-            
-            # Obtener muestra de los últimos 252 VECMs
-            vecms_sample = self.vecms_hat[-min(len(self.vecms_hat), self.window_size):]
-            
-            # Normalizar VECM
-            if len(vecms_sample) > 1:
-                vecm_mean = np.mean(vecms_sample)
-                vecm_std = np.std(vecms_sample)
-                vecm_norm = (vecm_hat - vecm_mean) / vecm_std if vecm_std > 0 else 0
+            except Exception as e:
+                if verbose:
+                    print(f"[{current_date.date()}] Error en cálculos: {str(e)}")
+                z_score = 0
+                e1_hat, e2_hat = 0,0
+                theta_revertion = 0
+
+            #señales usando theta
+            if self.position_type is None:
+                if z_score > self.theta:
+                    self.open_long_A_short_B(p1, p2, hr_hat, current_date)
+                
+                elif z_score < -self.theta:
+                    self.open_short_A_long_B(p1, p2, hr_hat, current_date)
             else:
-                vecm_norm = 0
-            
-
-            # Costo de los préstamos (solo si tenemos posición)
-            borrow_cost = 0
-            if self.position_type is not None:
-                borrow_cost = self.calculate_daily_borrow_cost()
-                self.cash -= borrow_cost
-            
-            # SEÑALES DE TRADING
-
-            # Opción 1: cerrar posición (Z ~0)
-            if self.position_type is not None and abs(vecm_norm) < self.theta:
-                self.close_position(p1, p2, date, reason="(Reversión)")
-            
-            # Opción 2: abrimos long A y short B (Z > theta)
-            elif self.position_type is None and vecm_norm > self.theta:
-                self.open_long_A_short_B(p1, p2, hr, date)
-            
-            # Opción 3: abrimos short A y long B (Z < -theta)
-            elif self.position_type is None and vecm_norm < -self.theta:
-                self.open_short_A_long_B(p1, p2, hr, date)
-            
-            # opción 4: no hacemos nada
+                if z_score < 0.0:
+                    self.close_position(p1, p2, current_date, "Z < 0")
+                
+                elif self.position_type == 'long_A_short_B' and z_score < -self.theta:
+                    self.close_position(p1, p2, current_date, "Reversión de señal")
+                
+                elif self.position_type == 'short_A_long_B' and z_score > self.theta:
+                    self.close_position(p1, p2, current_date, "Reversión de señal")
 
             # GUARDAR ESTADO
-            portfolio_value = self.cash
-            if self.position_type == 'long_A_short_B':
-                portfolio_value += p1 * self.n_shares_long
-                portfolio_value -= p2 * self.n_shares_short
-            elif self.position_type == 'short_A_long_B':
-                portfolio_value -= p1 * self.n_shares_short
-                portfolio_value += p2 * self.n_shares_long
-            
-            
+            portfolio_value = self.calculate_portfolio_value(p1,p2)
+
             self.history.append({
-                'date': date,
-                'p1': p1,
-                'p2': p2,
-                'hedge_ratio': hr,
-                'intercept': w0,
-                'eigenvector_1': e1_hat,
-                'eigenvector_2': e2_hat,
-                'vecm_hat': vecm_hat,
-                'vecm_norm': vecm_norm,
+                'date': current_date,
+                'stock_a_price': p1,
+                'stock_b_price': p2,
+                'hedge_ratio': hr_hat,
+                'e1_hat': e1_hat,
+                'ei2_hat': e2_hat,
+                'theta_revertion': theta_revertion,
+                'vecm_current': vecm_current,
+                'z_score': z_score,
+                'theta_threshold': self.theta,
                 'cash': self.cash,
+                'borrowed_amount': self.borrowed_amount,
+                'n_shares_long': self.n_shares_long,
+                'n_shares_short': self.n_shares_short,
                 'portfolio_value': portfolio_value,
                 'position_type': self.position_type if self.position_type else 'none',
                 'active_position': 1 if self.active_long is not None else 0,
-                'borrow_cost': borrow_cost
+                'borrow_cost': daily_borrow_cost
             })
-            
-            # Mostrar progreso
-            if verbose and (i - self.window_size) % max(1, (len(df) - self.window_size) // 20) == 0:
-                progress = ((i - self.window_size) / (len(df) - self.window_size)) * 100
-                print(f"[{date.date()}] Progreso: {progress:5.1f}% | "
-                      f"Portfolio: ${portfolio_value:,.2f} | "
-                      f"VECM norm: {vecm_norm:6.2f} | "
-                      f" Position: {self.position_type if self.position_type else 'None'}")
-                
-        
+
+                        
         # Cerrar posición final si está abierta
         if self.position_type is not None:
-            final_row = df.iloc[-1]
-            self.close_position(final_row['stock_a'], final_row['stock_b'], df.index[-1], reason="(Fin)")
+            final_date = df.loc[len(df)-1, 'Date']
+            final_p1 = df.loc[len(df)-1, 'stock_a']
+            final_p2 = df.loc[len(df)-1, 'stock_b']
+            self.close_position(final_p1, final_p2, final_date, "Fin del periodo")
 
         
         # Crear DataFrame de resultados
@@ -378,7 +416,22 @@ class PairTradingBacktest:
             print(f"Capital final: ${final_value:,.2f}")
             print(f"Retorno total: {total_return:.2f}%")
             print(f"{'='*60}\n")
-        
+
+        if verbose:
+            results_df = pd.DataFrame(self.history)
+            print(f"\n{'='*60}")
+            print(f"ANÁLISIS DE SEÑALES")
+            print(f"{'='*60}")
+            print(f"Theta threshold usado: {self.theta}")
+            print(f"Z-score estadísticas:")
+            print(f"  Min: {results_df['z_score'].min():.2f}")
+            print(f"  Max: {results_df['z_score'].max():.2f}")
+            print(f"  Mean: {results_df['z_score'].mean():.2f}")
+            print(f"  Std: {results_df['z_score'].std():.2f}")
+            print(f"\nVeces que |z_score| > {self.theta}: {(results_df['z_score'] > self.theta).sum()}")
+            print(f"Veces que |z_score| < 0.0: {(results_df['z_score'] < 0.0).sum()}")
+            print(f"{'='*60}\n")
+
         return results_df
 
 
@@ -413,6 +466,7 @@ def calculate_performance_metrics(results_df: pd.DataFrame,
     calmar_ratio = annualized_return / abs(max_drawdown) if max_drawdown != 0 else 0
     
     total_borrow_costs = results_df['borrow_cost'].sum()
+
     
     # Contar trades 
     position_changes = results_df['active_position'].diff().fillna(0)
@@ -472,85 +526,79 @@ def walk_forward_analysis(train_df: pd.DataFrame,
         print("FASE 1: OPTIMIZACIÓN EN VALIDATION SET")
         print("-" * 60)
 
-    theta_grid = [0.1, 0.2, 0.3, 0.4, 0.5]
-    test_configs = []
-
-    for theta in theta_grid:
-        test_configs.append({
-            'theta': theta,
-            'kalman1_process_noise': 0.01,
-            'kalman2_process_noise': 0.001
-        })
-    
-    if verbose:
-        print(f"Probando {len(test_configs)} configuraciones de theta...")
-        print(f"Theta grid: {theta_grid}")
-    
-    
+    theta_grid = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
     best_sharpe = -np.inf
     best_params = None
     validation_results = []
-    
-    for i, config in enumerate(test_configs, 1):
-        if verbose and i % 5 == 0:
-            print(f"\nConfig {i}/{len(test_configs)}: theta = {config['theta']:.2f}")
-        
-        backtest = PairTradingBacktest(
-            initial_cash=initial_cash,
-            theta = config['theta'],
-            kalman1_process_noise=config['kalman1_process_noise'],
-            kalman2_process_noise=config['kalman2_process_noise']
-        )
-        
+
+    for theta in theta_grid:
+        config = {
+            'theta': theta,
+            'kalman1_process_noise': 0.01,
+            'kalman2_process_noise': 0.001
+        }
+
         try:
+            backtest = PairTradingBacktest(
+                initial_cash=initial_cash,
+                **config
+            )
+
             results = backtest.run(val_df, verbose=False)
             metrics = calculate_performance_metrics(results, initial_cash, verbose=False)
-        
+
             validation_results.append({
+                'theta': theta,
                 'config': config,
                 'sharpe': metrics['sharpe_ratio'],
                 'sortino': metrics['sortino_ratio'],
                 'return': metrics['total_return_pct'],
-                'max_dd': metrics['max_drawdown_pct']
+                'max_dd': metrics['max_drawdown_pct'],
+                'trades': metrics['total_trades'],
+                'final_value': metrics['final_value']
             })
-        
-            if metrics['sharpe_ratio'] > best_sharpe:
-                best_sharpe = metrics['sharpe_ratio']
-                best_sortino = metrics['sortino_ratio']
-                best_params = config
-        
+
             if verbose:
-                print(f"  Sharpe: {metrics['sharpe_ratio']:.3f} | "
-                    f" Sortino: {metrics['sortino_ratio']:.3f} |"
-                    f"Return: {metrics['total_return_pct']:.2f}% | "
-                    f"Trades: {metrics['total_trades']}")
+                print(f"{theta:<8.2f} {metrics['total_trades']:<8} "
+                      f"{metrics['total_return_pct']:<12.2f} "
+                      f"{metrics['sharpe_ratio']:<10.3f} "
+                      f"{metrics['sortino_ratio']:<10.3f} "
+                      f"{metrics['max_drawdown_pct']:<10.2f}")
+                
+            if metrics['total_trades'] >= 3:
+                if metrics['sharpe_ratio'] > best_sharpe:
+                    best_sharpe = metrics['sharpe_ratio']
+                    best_params = config.copy()
         
         except Exception as e:
             if verbose:
-                print(f" Error: {e}")
+                print(f"{theta:<8.2f} ERROR: {str(e)[:40]}")
             continue
+    
+    if verbose:
+        print("-" * 70)
 
     if best_params is None:
-        if len(validation_results) == 0:
+        if len(validation_results) > 0:
+            validation_results.sort(key=lambda x: (x['trades'], x['sharpe']), reverse=True)
+            best_result = validation_results[0]
+            best_params = best_result['config']
+            best_sharpe = best_result['sharpe']
+
             if verbose:
                 print("\n Ninguna configuración funcionó. Usando parámetros por defecto.")
+            
+            
+        else:
+            if verbose:
+                print("\n Ninguna configuración funcionó. Usando default")
             
             best_params = {
                 'theta': 0.5,
                 'kalman1_process_noise': 0.01,
                 'kalman2_process_noise': 0.001
             }
-
             best_sharpe = 0
-            best_sortino = 0
-            
-        else:
-            validation_results.sort(key=lambda x: x['sharpe'], reverse=True)
-            best_params = validation_results[0]['config']
-            best_sharpe = validation_results[0]['sharpe']
-            best_sortino = validation_results[0]['sortino']
-            if verbose:
-                print("\n Ninguna configuración generó 5+ trades. Usando la mejor disponible.")
     
     if verbose:
         print(f"\n{'='*60}")
@@ -560,10 +608,9 @@ def walk_forward_analysis(train_df: pd.DataFrame,
         print(f"  Kalman 1 process noise: {best_params['kalman1_process_noise']}")
         print(f"  Kalman 2 process noise: {best_params['kalman2_process_noise']}")
         print(f"  Sharpe en Validation: {best_sharpe:.3f}")
-        print(f" Sortino en Validation: {best_sortino:.3f}")
         print(f"{'='*60}\n")
 
-        print("Top 5 configuraciones:")
+        print("Top configuraciones:")
         validation_results.sort(key=lambda x: x['sharpe'], reverse=True)
         for i, result in enumerate(validation_results[:5], 1):
             print(f"{i}. θ={result['config']['theta']:.2f} | "
