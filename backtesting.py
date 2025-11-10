@@ -351,6 +351,7 @@ class PairTradingBacktest:
                 z_score = 0
                 e1_hat, e2_hat = 0,0
                 theta_revertion = 0
+                vecm_current = 0.0
 
             #señales usando theta
             if self.position_type is None:
@@ -360,8 +361,8 @@ class PairTradingBacktest:
                 elif z_score < -self.theta:
                     self.open_short_A_long_B(p1, p2, hr_hat, current_date)
             else:
-                if z_score < 0.0:
-                    self.close_position(p1, p2, current_date, "Z < 0")
+                if z_score < 0.05:
+                    self.close_position(p1, p2, current_date, "Z < 0.05")
                 
                 elif self.position_type == 'long_A_short_B' and z_score < -self.theta:
                     self.close_position(p1, p2, current_date, "Reversión de señal")
@@ -429,7 +430,7 @@ class PairTradingBacktest:
             print(f"  Mean: {results_df['z_score'].mean():.2f}")
             print(f"  Std: {results_df['z_score'].std():.2f}")
             print(f"\nVeces que |z_score| > {self.theta}: {(results_df['z_score'] > self.theta).sum()}")
-            print(f"Veces que |z_score| < 0.0: {(results_df['z_score'] < 0.0).sum()}")
+            print(f"Veces que |z_score| < 0.05: {(results_df['z_score'] < 0.05).sum()}")
             print(f"{'='*60}\n")
 
         return results_df
@@ -526,7 +527,7 @@ def walk_forward_analysis(train_df: pd.DataFrame,
         print("FASE 1: OPTIMIZACIÓN EN VALIDATION SET")
         print("-" * 60)
 
-    theta_grid = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    theta_grid = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
     best_sharpe = -np.inf
     best_params = None
     validation_results = []
