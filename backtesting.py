@@ -127,7 +127,7 @@ class PairTradingBacktest:
         Abre posición: LONG A (stock_a), SHORT B (stock_b).
         Señal: Z > θ 
         """
-        inversion_total = self.cash * self.position_allocation
+        inversion_total = self.initial_cash * self.position_allocation
         amount_per_side = inversion_total / 2
         
         # LONG stock_a
@@ -163,7 +163,7 @@ class PairTradingBacktest:
         Abre posición: SHORT A (stock_a), LONG B (stock_b).
         Señal: Z < -θ 
         """
-        inversion_total = self.cash * self.position_allocation
+        inversion_total = self.initial_cash * self.position_allocation
         amount_per_side = inversion_total / 2
         
         # SHORT stock_a
@@ -361,7 +361,7 @@ class PairTradingBacktest:
                 elif z_score < -self.theta:
                     self.open_short_A_long_B(p1, p2, hr_hat, current_date)
             else:
-                if z_score < 0.05:
+                if abs(z_score) < 0.05:
                     self.close_position(p1, p2, current_date, "Z < 0.05")
                 
                 elif self.position_type == 'long_A_short_B' and z_score < -self.theta:
@@ -379,7 +379,7 @@ class PairTradingBacktest:
                 'stock_b_price': p2,
                 'hedge_ratio': hr_hat,
                 'e1_hat': e1_hat,
-                'ei2_hat': e2_hat,
+                'e2_hat': e2_hat,
                 'theta_revertion': theta_revertion,
                 'vecm_current': vecm_current,
                 'z_score': z_score,
@@ -390,7 +390,7 @@ class PairTradingBacktest:
                 'n_shares_short': self.n_shares_short,
                 'portfolio_value': portfolio_value,
                 'position_type': self.position_type if self.position_type else 'none',
-                'active_position': 1 if self.active_long is not None else 0,
+                'active_position': 1 if self.position_type is not None else 0,
                 'borrow_cost': daily_borrow_cost
             })
 
@@ -527,7 +527,7 @@ def walk_forward_analysis(train_df: pd.DataFrame,
         print("FASE 1: OPTIMIZACIÓN EN VALIDATION SET")
         print("-" * 60)
 
-    theta_grid = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+    theta_grid = [0.1, 0.2, 0.3, 0.4, 0.5]
     best_sharpe = -np.inf
     best_params = None
     validation_results = []
