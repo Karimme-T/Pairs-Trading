@@ -127,7 +127,7 @@ class PairTradingBacktest:
         Abre posición: LONG A (stock_a), SHORT B (stock_b).
         Señal: Z > θ 
         """
-        inversion_total = self.cash * self.position_allocation
+        inversion_total = self.initial_cash * self.position_allocation
         amount_per_side = inversion_total / 2
         
         # LONG stock_a
@@ -163,7 +163,7 @@ class PairTradingBacktest:
         Abre posición: SHORT A (stock_a), LONG B (stock_b).
         Señal: Z < -θ 
         """
-        inversion_total = self.cash * self.position_allocation
+        inversion_total = self.initial_cash * self.position_allocation
         amount_per_side = inversion_total / 2
         
         # SHORT stock_a
@@ -329,12 +329,12 @@ class PairTradingBacktest:
 
                 #calcular vecm 
                 vecm_current = e1_hat * p1 + e2_hat * p2
-                
-                #calcular el vecm por ventanas de 252
-                vecm_window = []
-                for j in range(len(window_data)):
-                    vecm_j = e1_hat * window_data['stock_a'].iloc[j] + e2_hat * window_data['stock_b'].iloc[j]
-                    vecm_window.append(vecm_j)
+                self.vecms_hat.append(vecm_current)
+
+                if len(self.vecms_hat) >= 252:
+                    vecm_window = self.vecms_hat[-252:]
+                else:
+                    vecm_window = self.vecms_hat
             
                 # Normalizar VECM
                 vecm_mean = np.mean(vecm_window)
@@ -361,7 +361,7 @@ class PairTradingBacktest:
                 elif z_score < -self.theta:
                     self.open_short_A_long_B(p1, p2, hr_hat, current_date)
             else:
-                if z_score < 0.05:
+                if abs(z_score) < 0.05:
                     self.close_position(p1, p2, current_date, "Z < 0.05")
                 
                 elif self.position_type == 'long_A_short_B' and z_score < -self.theta:
@@ -379,7 +379,7 @@ class PairTradingBacktest:
                 'stock_b_price': p2,
                 'hedge_ratio': hr_hat,
                 'e1_hat': e1_hat,
-                'ei2_hat': e2_hat,
+                'e2_hat': e2_hat,
                 'theta_revertion': theta_revertion,
                 'vecm_current': vecm_current,
                 'z_score': z_score,
@@ -390,7 +390,7 @@ class PairTradingBacktest:
                 'n_shares_short': self.n_shares_short,
                 'portfolio_value': portfolio_value,
                 'position_type': self.position_type if self.position_type else 'none',
-                'active_position': 1 if self.active_long is not None else 0,
+                'active_position': 1 if self.position_type is not None else 0,
                 'borrow_cost': daily_borrow_cost
             })
 
@@ -527,8 +527,8 @@ def walk_forward_analysis(train_df: pd.DataFrame,
         print("FASE 1: OPTIMIZACIÓN EN VALIDATION SET")
         print("-" * 60)
 
-    theta_grid = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
-    best_sharpe = -np.inf
+    theta_grid = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
+    best_calmar = -np.inf
     best_params = None
     validation_results = []
 
@@ -551,8 +551,9 @@ def walk_forward_analysis(train_df: pd.DataFrame,
             validation_results.append({
                 'theta': theta,
                 'config': config,
-                'sharpe': metrics['sharpe_ratio'],
+                'calmar': metrics['calmar_ratio'],
                 'sortino': metrics['sortino_ratio'],
+                'sharpe': metrics['sharpe_ratio'],
                 'return': metrics['total_return_pct'],
                 'max_dd': metrics['max_drawdown_pct'],
                 'trades': metrics['total_trades'],
@@ -564,11 +565,12 @@ def walk_forward_analysis(train_df: pd.DataFrame,
                       f"{metrics['total_return_pct']:<12.2f} "
                       f"{metrics['sharpe_ratio']:<10.3f} "
                       f"{metrics['sortino_ratio']:<10.3f} "
+                      f"{metrics['calmar_ratio']:<10.3f} "
                       f"{metrics['max_drawdown_pct']:<10.2f}")
                 
             if metrics['total_trades'] >= 3:
-                if metrics['sharpe_ratio'] > best_sharpe:
-                    best_sharpe = metrics['sharpe_ratio']
+                if metrics['calmar_ratio'] > best_sortino:
+                    best_calmar = metrics['calmar_ratio']
                     best_params = config.copy()
         
         except Exception as e:
@@ -581,10 +583,10 @@ def walk_forward_analysis(train_df: pd.DataFrame,
 
     if best_params is None:
         if len(validation_results) > 0:
-            validation_results.sort(key=lambda x: (x['trades'], x['sharpe']), reverse=True)
+            validation_results.sort(key=lambda x: (x['trades'], x['calmar']), reverse=True)
             best_result = validation_results[0]
             best_params = best_result['config']
-            best_sharpe = best_result['sharpe']
+            best_sortino = best_result['calmar']
 
             if verbose:
                 print("\n Ninguna configuración funcionó. Usando parámetros por defecto.")
@@ -599,7 +601,7 @@ def walk_forward_analysis(train_df: pd.DataFrame,
                 'kalman1_process_noise': 0.01,
                 'kalman2_process_noise': 0.001
             }
-            best_sharpe = 0
+            best_calmar = 0
     
     if verbose:
         print(f"\n{'='*60}")
@@ -608,16 +610,19 @@ def walk_forward_analysis(train_df: pd.DataFrame,
         print(f"  Theta (θ): {best_params['theta']:.3f}")
         print(f"  Kalman 1 process noise: {best_params['kalman1_process_noise']}")
         print(f"  Kalman 2 process noise: {best_params['kalman2_process_noise']}")
-        print(f"  Sharpe en Validation: {best_sharpe:.3f}")
+        print(f"  Sortino en Validation: {best_calmar:.3f}")
         print(f"{'='*60}\n")
 
         print("Top configuraciones:")
-        validation_results.sort(key=lambda x: x['sharpe'], reverse=True)
+        validation_results.sort(key=lambda x: x['sortino'], reverse=True)
         for i, result in enumerate(validation_results[:5], 1):
             print(f"{i}. θ={result['config']['theta']:.2f} | "
+                  f"Calmar={result['calmar']:.3f} | "
                   f"Sharpe={result['sharpe']:.3f} | "
                   f"Sortino={result['sortino']:.3f} | "
-                  f"Return={result['return']:.2f}% ")
+                  f"Return={result['return']:.2f}% "
+                  f"MaxDD={result['max_dd']:.2f}% | "
+                  f"Trades={result['trades']} ")
         
         print("\nFASE 2: TESTING CON MEJORES PARÁMETROS")
         print("-" * 60)
