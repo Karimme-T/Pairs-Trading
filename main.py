@@ -10,18 +10,14 @@ from backtesting import PairTradingBacktest, calculate_performance_metrics, walk
 # Manually select pair by changing this index (0, 1, or 2)
 selected_pair_idx = 0
 pairs = [
-    ['SPY', 'VOO'],
+    ['AAPL', 'ORCL'],
     ['ADBE', 'CSCO'],
     ['ADBE', 'MSFT'],
-    ['BAC', 'C'],
-    ['BP', 'SHEL'],
     ['CL', 'KMB'],
-    ['CSCO', 'MSFT'],
-    ['FDX', 'MMM'],
+    ['INTC', 'ORCL'],
     ['KMB', 'MDLZ'],
-    ['LOW', 'NKE'],
-    ['MMM', 'UPS'] 
- ]
+    ['MMM', 'UPS']
+]
 
 
 def main():
