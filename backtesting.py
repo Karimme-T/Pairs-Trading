@@ -106,6 +106,8 @@ class PairTradingBacktest:
         self.active_short = None  
         self.borrowed_amount = 0  
         self.position_type = None
+        self.entry_commission_long = 0
+        self.entry_commission_short = 0
         
         self.vecms_hat = []
         self.history = []
@@ -143,6 +145,7 @@ class PairTradingBacktest:
         self.active_long = p1
         
         # SHORT stock_b
+        self.entry_commission_long = commission_long
         self.n_shares_short = self.n_shares_long * hr
         commission_short = self.calculate_commission(p2, self.n_shares_short)
 
@@ -150,6 +153,7 @@ class PairTradingBacktest:
 
         self.cash += self.borrowed_amount - commission_short
         self.active_short = p2
+        self.entry_commission_short = commission_short
         self.position_type = 'long_A_short_B'
         
         print(f"\n[{date.date()}] Abriendo posición: LONG A, SHORT B")
@@ -173,6 +177,8 @@ class PairTradingBacktest:
         self.borrowed_amount = p1 * self.n_shares_short
         self.cash += self.borrowed_amount - commission_short
         self.active_short = p1
+
+        self.entry_commission_short = commission_short
         
         # LONG stock_b
         self.n_shares_long = self.n_shares_short * hr
@@ -186,10 +192,12 @@ class PairTradingBacktest:
             self.borrowed_amount = 0
             self.active_short = None
             self.n_shares_short = 0
+            self.entry_commission_short = 0
             return
         
         self.cash -= cost_long
         self.active_long = p2
+        self.entry_commission_long = commission_long
         self.position_type = 'short_A_long_B'
         
         print(f"\n[{date.date()}] Abriendo posición: SHORT A, LONG B")
@@ -224,7 +232,10 @@ class PairTradingBacktest:
 
             pnl_long = (p1 - self.active_long) * self.n_shares_long
             pnl_short = (self.active_short - p2) * self.n_shares_short
-            pnl = pnl_long + pnl_short - commission_long - commission_short
+
+            total_commissions = (self.entry_commission_long + self.entry_commission_short + commission_long + commission_short)
+
+            pnl = pnl_long + pnl_short - total_commissions
 
         else:
             # cerramos short A
@@ -239,7 +250,8 @@ class PairTradingBacktest:
 
             pnl_short = (self.active_short - p1) * self.n_shares_short
             pnl_long = (p2 - self.active_long) * self.n_shares_long
-            pnl = pnl_short + pnl_long - commission_short - commission_long
+            total_commissions = (self.entry_commission_short + self.entry_commission_long + commission_short + commission_long)
+            pnl = pnl_short + pnl_long + total_commissions
 
         print(f"\n[{date.date()}] Cerrando: {self.position_type} {reason}")
         print(f" PnL: ${pnl:.2f}")
@@ -253,6 +265,8 @@ class PairTradingBacktest:
         self.n_shares_short = 0
         self.borrowed_amount = 0
         self.position_type = None
+        self.entry_commission_long = 0
+        self.entry_commission_short = 0
 
     
     def calculate_portfolio_value(self, p1:float, p2:float) -> float:
@@ -527,7 +541,7 @@ def walk_forward_analysis(train_df: pd.DataFrame,
         print("FASE 1: OPTIMIZACIÓN EN VALIDATION SET")
         print("-" * 60)
 
-    theta_grid = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
+    theta_grid = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
     best_calmar = -np.inf
     best_params = None
     validation_results = []
