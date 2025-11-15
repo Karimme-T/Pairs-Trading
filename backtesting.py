@@ -527,7 +527,7 @@ def walk_forward_analysis(train_df: pd.DataFrame,
         print("FASE 1: OPTIMIZACIÓN EN VALIDATION SET")
         print("-" * 60)
 
-    theta_grid = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    theta_grid = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2]
     best_calmar = -np.inf
     best_params = None
     validation_results = []
